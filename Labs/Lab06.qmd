@@ -1,0 +1,413 @@
+---
+title: "Lab Assignment #6"
+author: "Math 437 - Modern Data Analysis"
+format: pdf
+editor: source
+---
+
+## Introduction
+
+In this lab, we will fit ridge regression and LASSO models. We will then perform post-selection inference, i.e., inference about the coefficients of the variables selected by a LASSO model.
+```{r}
+getwd()
+```
+
+```{r}
+#| label: load packages and data
+#| message: false
+#| warning: false
+here::i_am("Labs/Lab06.qmd")
+
+library(ISLR2)
+library(ggplot2)
+library(dplyr)
+library(tidymodels)
+library(glmnet)
+library(selectiveInference)
+
+public <- readr::read_csv(here::here("C:/Users/aocho/Downloads/public_2020.csv"))
+```
+
+This lab assignment is worth a total of **15 points**.
+
+## Problem 1: Penalized Regression without tidymodels
+
+### Part a (Code: 1 pt)
+
+ISLR Lab 6.5.2.
+
+```{r}
+#| label: run this code BEFORE running anything else in ISLR Lab 6.5.2
+
+Hitters <- na.omit(Hitters)
+```
+
+The above code is an important part of Lab 6.5.1, which we are not going to run. Once you have run that code, you should be able to run the code in Lab 6.5.2 without issues.
+
+#### Solution
+```{r}
+x <- model.matrix(Salary ~. , Hitters) [,-1]
+y <- Hitters$Salary
+```
+
+```{r}
+library(glmnet)
+grid <- 10^seq(10,-2,length = 100)
+ridge.mod <- glmnet(x,y, alpha = 0, lambda = grid)
+```
+
+```{r}
+dim(coef(ridge.mod))
+```
+```{r}
+ridge.mod$lambda[50]
+coef(ridge.mod)[,50]
+sqrt(sum(coef(ridge.mod)[-1,50]^2))
+```
+```{r}
+ridge.mod$lambda[60]
+coef(ridge.mod)[,60]
+sqrt(sum(coef(ridge.mod)[-1,60]^2))
+```
+
+```{r}
+predict(ridge.mod, s = 50, type = "coefficients")[1:20,]
+```
+
+```{r}
+#| label: split into testing and training sets
+set.seed(1)
+train <- sample(1:nrow(x), nrow(x) / 2)
+test <- (-train)
+y.test <- y[test]
+```
+
+```{r}
+ridge.mod <- glmnet(x[train,], y[train], alpha = 0, lambda = grid, thresh = 1e-12)
+ridge.pred <- predict(ridge.mod,
+                      s=4,
+                      newx = x[test,]
+                      )
+mean((ridge.pred - y.test)^2)
+```
+```{r}
+mean((mean(y[train]) - y.test)^2)
+```
+```{r}
+ridge.pred <- predict(ridge.mod, s = 1e10, newx = x[test, ])
+mean((ridge.pred - y.test)^2)
+```
+```{r}
+ridge.pred <- predict(ridge.mod,
+                      s=0,
+                      newx = x[test,],
+                      exact = T,
+                      x= x[train,],
+                      y = y[train])
+mean((ridge.pred - y.test)^2)
+
+lm(y~x, subset = train)
+
+predict(ridge.mod, s= 0, exact = T, type = "coefficients",
+        x= x[train,],
+        y = y[train])[1:20,]
+```
+```{r}
+set.seed(1)
+cv.out <- cv.glmnet(x[train,],
+                    y[train],
+                    alpha = 0)
+plot(cv.out)
+bestlam <- cv.out$lambda.min
+bestlam
+```
+```{r}
+ridge.pred <- predict(ridge.mod,
+                      s = bestlam,
+                      newx = x[test,])
+mean((ridge.pred - y.test)^2)
+
+out <- glmnet(x,
+              y,
+              alpha = 0)
+predict(out,
+        type = "coefficients",
+        s = bestlam)[1:20, ]
+```
+```{r}
+lasso.mod <- glmnet(x[train, ], y[train], alpha = 1,
+                    lambda = grid)
+plot(lasso.mod)
+```
+```{r}
+set.seed(1)
+cv.out <- cv.glmnet(x[train, ], y[train], alpha = 1)
+plot(cv.out)
+bestlam <- cv.out$lambda.min
+lasso.pred <- predict(lasso.mod,
+                      s = bestlam,
+                      newx = x[test, ])
+mean((lasso.pred - y.test)^2)
+```
+
+```{r}
+out <- glmnet(x,y, alphja = 1, lambda = grid)
+lasso.coef <- predict(out, type = "coefficients", s = bestlam)[1:20,]
+lasso.coef
+```
+
+
+### Part b (Explanation: 1 pt)
+
+Which variables in the original Hitters dataset are *not* in the matrix `x`? What happened to them?
+
+#### Solution
+The variables Salary and Player are not included in the matrix x. Salary is excluded because it is the response variable in the regression model. Player is excluded because it is a character variable identifying the player’s name and is not used as a predictor.
+### Part c (Explanation: 1 pt)
+
+Explain how to "force" R to fit an intercept-only model using the `glmnet` function.
+
+#### Solution
+To force an intercept-only model in glmnet, we can pass a predictor matrix with no columns, such as in a matrix with 0 predictors. Since there are no predictors, glmnet can only estimate the intercept term.
+### Part d (Explanation: 1 pt)
+
+Given an optimal cross-validated value of $\lambda$, does ridge regression or LASSO tend to produce simpler models? Explain your reasoning.
+
+#### Solution
+Given an optimal cross-validated value of lambda, LASSO tends to produce simpler models than ridge regression. This is because LASSO can shrink some coefficients exactly to zero, which effectively removes those variables from the model. Ridge regression also shrinks coefficients toward zero, but it does not usually make them exactly zero, so it keeps all predictors in the model. Because LASSO can eliminate variables entirely, it generally results in a simpler and more interpretable model.
+## Problem 2: Post-Selection Inference with the LASSO
+
+The `public` dataset contains information about approximately 400 public colleges and universities, taken from the 2020 U.S. Department of Education College Scorecard.
+
+We would like to perform variable selection to determine what other variables in the dataset are useful for predicting the base 10 log of `Average_Total_Cost`, and then perform inference for the corresponding slopes.
+
+### Part a (Code: 0.5 pts)
+
+Using `tidymodels`, divide the `public` dataset into a training set and a test set. The test set should contain a random subset of 25% of the original dataset.
+
+#### Solution
+```{r}
+set.seed(123)
+
+public_split <- initial_split(
+  public,
+  prop = 0.75
+)
+
+public_train <- training(public_split)
+public_test  <- testing(public_split)
+```
+
+### Part b (Code: 1.5 pts)
+
+Using `tidymodels`, create a workflow that will fit a LASSO model predicting the base 10 log of `Average_Total_Cost` from the other variables in the dataset (except, obviously, `Name`).
+
+HINT 1: In Part c you will tune the model, so make sure to include `penalty = tune()` when you create the model.
+
+HINT 2: The `y ~ .` specification for the formula will work, but you will need to remove the `Name` variable using the `step_rm()` function. Alternatively, you could specify each variable in the model individually in the formula.
+
+HINT 3: You could use the `step_log()` function to transform `Average_Total_Cost`, but this is generally bad practice and will cause problems with predictions later. Just transform `Average_Total_Cost` before putting it in the recipe. If you're worried about overwriting, create a new response variable (and remove `Average_Total_Cost` from the model using `step_rm()` if necessary).
+
+#### Solution
+```{r}
+# create log response first
+public_train <- public_train |>
+  mutate(log_cost = log10(Average_Total_Cost))
+
+public_test <- public_test |>
+  mutate(log_cost = log10(Average_Total_Cost))
+
+# model specification
+lasso_model <- linear_reg(
+  mode = "regression",
+  engine = "glmnet",
+  penalty = tune(),
+  mixture = 1
+)
+
+# recipe
+lasso_recipe <- recipe(
+  log_cost ~ ., #we use . to represent all other variables so our log_cost are the predictors
+  data = public_train
+) |>
+  step_rm(Name, Average_Total_Cost) |>
+  step_normalize(all_numeric_predictors()) |>
+  step_dummy(all_nominal_predictors())
+
+# workflow
+lasso_wflow <- workflow() |>
+  add_model(lasso_model) |>
+  add_recipe(lasso_recipe)
+```
+
+### Part c (Code: 2 pts)
+
+Use 10-fold cross-validation to determine the optimal value of $\lambda$ using the 1-standard error rule and the RMSE metric. It turns out that not a lot of shrinkage is necessary here; use a logarithmically spaced grid from $10^{-4}$ to $10^{-1}$ in increments of roughly 0.1 on the log10-scale (i.e., use the `expand.grid` function to manually set up your grid, or use `grid_regular` to automatically set it up).
+
+What is the optimal value of $\lambda$ according to your cross-validation? What is value of $\lambda$ should be selected according to the one-standard-error rule?
+
+#### Solution
+```{r}
+#10 fold cv
+set.seed(123)
+
+public_cv <- vfold_cv(
+  public_train,
+  v = 10
+)
+
+#log grid
+penalty_grid <- expand.grid(
+  penalty = 10^seq(-4, -1, by = 0.1)
+)
+#tune the model
+lasso_tune <- tune_grid(
+  lasso_wflow,
+  resamples = public_cv,
+  grid = penalty_grid,
+  metrics = metric_set(rmse)
+)
+#results
+collect_metrics(lasso_tune)
+
+```
+
+```{r}
+#| label: pick the largest lambda that is within 1 SE of the min.
+
+best_lambda <- select_best(
+  lasso_tune,
+  metric = "rmse"
+)
+
+
+lambda_1se <- select_by_one_std_err(
+  lasso_tune,
+  metric = "rmse",
+  desc(penalty)
+)
+
+best_lambda
+lambda_1se
+
+```
+So  the optimal lambda = 0.001995
+The lambda selected by the 1-SE rule = 0.01
+
+### Part d (Code: 2 pts)
+
+Using the value of $\lambda$ selected by the one-standard-error rule, make predictions on the test set, and obtain the estimate of test RMSE. 
+
+HINT: Remember to finalize the workflow using the appropriate `penalty` value and then re-fit the model on the entire training set before making predictions.
+
+#### Solution
+```{r}
+#finalize workflow
+lasso_final <- finalize_workflow(
+  lasso_wflow,
+  parameters = tibble(penalty = 0.01)
+)
+#fit on entire training set
+lasso_fit <- fit(
+  lasso_final,
+  data = public_train
+)
+#predict on test set
+lasso_preds <- predict(
+  lasso_fit,
+  new_data = public_test
+) |>
+  bind_cols(public_test)
+  
+#compute test rmse
+rmse(
+  lasso_preds,
+  truth = log_cost,
+  estimate = .pred
+)
+```
+So the estimated RMSE = 0.052
+### Part e (Code: 2 pts; Explanation: 1 pt)
+
+Which predictor variables were selected by the LASSO model? How do you know?
+
+Fit a least-squares regression model on the test set containing *only* the selected variables. Then, obtain confidence intervals for the slope corresponding to each predictor. Which variables are significantly linearly associated with the log of `Average_Total_Cost`?
+
+#### Solution
+```{r}
+lasso_coef <- lasso_fit |>
+  tidy()
+
+lasso_coef
+
+lasso_selected <- lasso_coef |>
+  filter(estimate != 0)
+
+lasso_selected
+```
+The LASSO model selected the predictors whose estimated coefficients are non-zero at lambda = 0.01. These variables are SAT, Instructional_Expenditure, Faculty_Salary, Pell_Grant, Retention_Rate, and Federal_Loan.
+
+```{r}
+ols_selected <- lm(
+  log_cost ~ SAT + Instructional_Expenditure + Faculty_Salary + Pell_Grant + Retention_Rate + Federal_Loan,
+  data = public_test
+)
+
+confint(ols_selected)
+```
+
+A predictor is significantly linearly associated with log(Average_Total_Cost) if its 95% confidence interval does not include 0. Based on the confidence intervals, Instructional_Expenditure, Pell_Grant, and Federal_Loan are significantly associated with log(Average_Total_Cost). The variables SAT, Faculty_Salary, and Retention_Rate are not statistically significant because their confidence intervals contain 0.
+### Part f (Code: 2 pts)
+
+Using the `fixedLassoInf` function, fit a LASSO model on the entire `public` dataset using the value of $\lambda$ selected by the one-standard-error rule.
+
+Which variables were selected? What are the confidence intervals for the slope corresponding to each selected predictor?
+
+HINT: HINT: You should first fit the LASSO model using the entire dataset using `cv.glmnet`. For the argument `lambda` in `fixedLassoInf`, you need to choose the best value of $\lambda$ using the one-standard-error rule of thumb and then multiply that value by the number of observations the dataset.
+
+NOTE: You may get a warning message about the KKT conditions not being satisfied. The KKT conditions are a set of conditions that are sufficient for proving that a solution optimizes some optimization problem. Essentially, the warning says we're not 100% sure that this is actually the correct solution.
+
+#### Solution
+```{r}
+library(selectiveInference)
+library(glmnet)
+#transform response variable
+public <- public |>
+  mutate(log_cost = log10(Average_Total_Cost))
+
+#create design matrix X and response Y
+x_full <- model.matrix(log_cost ~ . - Name - Average_Total_Cost, data = public)[,-1]
+y_full <- public$log_cost
+
+#fit lasso with cross validation
+cv_fit <- cv.glmnet(
+  x_full,
+  y_full,
+  alpha = 1,
+  nfolds = 10
+)
+
+#extract optimal lambda
+lambda_1se <- cv_fit$lambda.1se
+lambda_1se
+
+#extract lamba coeff.
+beta_hat <- as.vector(coef(cv_fit, s = "lambda.1se"))[-1]
+
+
+#perform post selection inference
+lasso_inf <- fixedLassoInf(
+  x_full,
+  y_full,
+  beta = beta_hat,
+  lambda = lambda_1se,
+  family = "gaussian"
+)
+
+lasso_inf
+```
+
+Explanation:
+Using the one-standard-error rule, the LASSO model selected the predictors corresponding to the nonzero coefficients returned by fixedLassoInf(). In this case, variables with indices 7, 9, 10, 12, 13, and 14 were selected.
+
+The confidence intervals for the slopes of these selected predictors are given by the LowConfPt and UpConfPt columns in the output. For example, the confidence intervals include values such as (0.000, 0.048), (0.000, 0.049), (−0.198, −0.098), (0.047, 0.242), and (0.223, 0.288), depending on the predictor. These intervals represent the range of possible values for each coefficient after accounting for the variable selection process.

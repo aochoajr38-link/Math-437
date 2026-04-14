@@ -1,0 +1,288 @@
+---
+title: "Lab Assignment #4"
+author: "Math 437 - Modern Data Analysis"
+format: pdf
+editor: source
+---
+
+## Introduction
+
+In a [2020 article](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0233515), Murray et al. attempted to understand the relationship between a professor's research output and their perceived teaching effectiveness.
+
+To quantify perceived teaching effectiveness, they scraped [Rate My Professor](https://www.ratemyprofessors.com/) and calculated an "overall effectiveness" score (based on the data dictionary, this appears to just be the average star rating, on a scale from 1-5, from reviews posted between Spring 2010 and Fall 2017 semesters).
+
+An anonymized, processed dataset and accompanying data dictionary is [publicly available](https://github.com/murrayds/aa_rmp/tree/master/data); I've removed most of the research-related variables to shrink the size of the dataset and shared it with you on Canvas as *RateMyProfessor*.
+
+```{r}
+#| label: do this at the beginning of every lab file
+#| message: false
+#| warning: false
+#here::i_am("Labs/Lab04.qmd")
+
+# load packages
+library(ISLR2)
+library(car)
+# load data
+RateMyProfessor <- readr::read_csv(
+  "C:/Users/aocho/Downloads/RateMyProfessor.csv"
+)
+```
+
+In this and the next lab assignment, we will build increasingly complex models to understand what goes into a professor's RateMyProfessor rating.
+
+This lab assignment is worth a total of **15 points**.
+
+## Problem 1: Simple Linear Regression (6 pts total)
+
+### Part a (Code: 0.5 pts)
+
+Run the code in ISLR Lab 3.6.2. Put each chunk from the textbook in its own chunk.
+```{r}
+#|label: Simple Linear Regression
+
+head(Boston)
+
+```
+```{r}
+#|label: Simple Linear Regression
+
+lm.fit <- lm(medv ~ lstat, data = Boston)
+attach(Boston)
+lm.fit <- lm(medv ~ lstat)
+
+lm.fit
+
+summary(lm.fit)
+```
+
+```{r}
+names(lm.fit)
+coef(lm.fit)
+```
+```{r}
+#|label: Obtain a C.I for the coefficient estimates
+
+confint(lm.fit)
+
+```
+
+```{r}
+predict(
+  lm.fit,
+  data.frame(lstat = (c(5,10,15))),
+  interval = "confidence"
+)
+```
+```{r}
+predict(
+  lm.fit,
+  data.frame(lstat = (c(5,10,15))),
+  interval = "prediction"
+)
+```
+```{r}
+#|label: Plot of medv and lstat along with the least squares regression line
+plot(lstat, medv)
+abline(lm.fit)
+```
+
+```{r}
+plot(lstat, medv)
+abline(lm.fit, lwd = 3, col = "red")
+plot(lstat, medv, col = "red")# changes entire color of graph
+plot(lstat, medv, pch = 20) #changes depth of symbol
+plot(lstat, medv, pch = "+")#changes symbol 
+plot(1:20, 1:20, pch = 1:20)
+```
+
+```{r}
+par(mfrow = c(2,2)) # divides the plotting region into a 2 by 2 grid
+plot(lm.fit)
+```
+
+
+```{r}
+plot(predict(lm.fit), residuals(lm.fit))
+plot(predict(lm.fit), rstudent(lm.fit))
+```
+
+```{r}
+#|label: Computes leverage statistices with hatvalues
+plot(hatvalues(lm.fit))
+which.max(hatvalues(lm.fit))
+```
+
+### Part c (Code: 0.5 pts; Explanation: 1 pt)
+
+Let's start our investigation of the RateMyProfessor data by looking at the relationship between `overall` and `difficulty`, the average rating for professor difficulty (also on a 1-5 scale with this time 1 = easiest, 5 = hardest). Create a scatterplot to visualize this relationship. For now, don't worry about making it look nice or fixing labels.
+
+Write a short paragraph describing what you can tell from the scatterplot about `overall`, `difficulty`, and/or the relationship between the two variables. Aim for roughly 2-4 sentences and assume that the person reading your paragraph knows no statistical jargon (e.g., instead of saying "strong linear relationship", say something like "the points follow very close to a line").
+
+#### Solution
+```{r}
+lm.rate <- lm(overall ~ difficulty, data = RateMyProfessor)
+attach(RateMyProfessor)
+lm.rate <- lm(overall ~ difficulty)
+
+
+
+plot(difficulty, overall, col = "blue")
+abline(lm.rate, col = "red")
+```
+
+The scatterplot shows that as the difficulty rating increases, the overall rating tends to decrease. The points follow a noticeable downward pattern, meaning professors who are rated as more difficult often receive lower overall ratings. While the points are somewhat spread out, the overall trend appears fairly consistent. This suggests there is a negative relationship between difficulty and overall rating.
+
+### Part d (Code: 0.5 pts)
+
+Fit a simple linear regression model predicting `overall` from `difficulty`. Obtain the `summary` of the model and use it to write the equation of the least-squares line.
+
+#### Solution
+```{r}
+
+lm.rate <- lm(overall ~ difficulty)
+
+lm.rate
+summary(lm.rate)
+
+```
+
+
+### Part e (Explanation: 1 pt)
+
+Does the slope of the regression model make real-world sense with this data? If so, explain how to interpret it. If not, explain why not.
+
+#### Solution
+Yes, the slope makes real-world sense. The slope is −0.6412, which means that for each 1-point increase in difficulty, the predicted overall rating decreases by about 0.64 points. In practical terms, professors who are rated as more difficult tend to receive lower overall ratings. This negative relationship is statistically significant, suggesting the pattern is unlikely to be due to random chance.
+
+### Part f (Explanation: 1 pt)
+
+Does the intercept of the regression model make real-world sense with this data? If so, explain how to interpret it. If not, explain why not.
+
+#### Solution
+The intercept is 5.5617, which represents the predicted overall rating when difficulty is 0. In real life, this doesn’t really make sense because difficulty is measured on a 1 to 5 scale, so a value of 0 isn’t possible in this dataset. So while the intercept is necessary for calculating the regression line, it doesn’t have a meaningful real-world interpretation here. It’s more of a mathematical starting point for the line than something we would actually observe.
+
+## Problem 2: Multiple Linear Regression (3.5 pts total)
+
+### Part a (Code: 0.5 pts)
+
+Run the code in ISLR Lab 3.6.3. Put each chunk from the textbook in its own chunk.
+
+#### Solution
+```{r}
+lm.fit <- lm(medv ~ lstat + age, data = Boston)
+summary(lm.fit)
+```
+```{r}
+lm.fit <- lm(medv ~ ., data = Boston)
+summary(lm.fit)
+```
+```{r}
+library(car)
+vif(lm.fit)
+```
+
+
+
+
+```{r}
+lm.fit1 <- lm(medv ~ . - age, data = Boston)
+summary(lm.fit1)
+#lm.fit1 <- update(lm.fit, ~ . - age) alternatively this one can also be used, the update() function.
+```
+
+```{r}
+lm.fit1 <- update(lm.fit, ~ . - age)
+```
+
+
+### Part b (Code: 0.5 pts)
+
+The `interest` variable represents the average student interest in the subject of the course (1 = "Low" interest; 5 = "It's My Life"). Note that this rating no longer exists on the website.
+
+Fit a multiple linear regression model predicting `overall` from `difficulty` and `interest`. Obtain the `summary` of the model and use it to write the equation of the least-squares line.
+
+#### Solution
+```{r}
+lm.multi <- lm(overall ~ difficulty + interest)
+
+summary(lm.multi)
+```
+The least-squares regression equation is phat overall =3.4406−0.5304(difficulty)+0.5171(interest).
+
+This means that, holding interest constant, each 1-unit increase in difficulty is associated with about a 0.53 point decrease in overall rating. Holding difficulty constant, each 1-unit increase in interest is associated with about a 0.52 point increase in overall rating.
+
+### Part c (Explanation: 1 pt)
+
+Notice that the slope corresponding to the `difficulty` variable has a different value in the simple linear regression model and the multiple linear regression model from Part b.
+
+How should we interpret the slope corresponding to `difficulty` in this new model?
+
+#### Solution
+In this multiple regression model, the slope for difficulty represents the change in overall rating for a one-unit increase in difficulty, holding interest constant. So instead of just looking at the overall relationship between difficulty and rating like we did before, this slope now isolates the effect of difficulty after accounting for how interested students are in the course. The slope is smaller in magnitude than in the simple regression because some of the relationship between difficulty and overall rating is explained by interest.
+
+### Part d (Code: 0.5 pts; Explanation: 1 pt)
+
+Does your interpretation from Part c actually make sense given the collected data? Support your answer by using the `vif` function and interpreting the output.
+
+#### Solution
+```{r}
+vif(lm(overall ~ difficulty + interest, data = RateMyProfessor))
+```
+The VIF values for both difficulty and interest are about 1.06, which is very close to 1. This means there is very little correlation between the two predictors. Because of this, multicollinearity is not a problem in this model. Therefore, it makes sense to interpret the slope for difficulty as the effect of difficulty on overall rating while holding interest constant.
+
+## Problem 3: Indicator Variables
+
+### Part a (Code: 0.5 pts)
+
+Run the code in ISLR Lab 3.6.6. Put each chunk from the textbook in its own chunk.
+
+#### Solution
+```{r}
+head(Carseats)
+```
+```{r}
+lm.fit <- lm(Sales ~ . + Income:Advertising + Price:Age,
+data = Carseats)
+ summary(lm.fit)
+```
+```{r}
+attach(Carseats)
+contrasts(ShelveLoc) #this function returns the coding that R uses for the dummy variable
+```
+
+
+### Part c (Code: 0.5 pts)
+
+Using the RateMyProfessor dataset, fit a linear model predicting the overall rating of a professor (`overall`) from the difficulty rating (`difficulty`), chili pepper rating (`hotness`), and rank (`rank`).
+
+Obtain the `summary` of the model and use it to write the equation of the least-squares line. 
+
+#### Solution
+```{r}
+lm_full <- lm(overall ~ difficulty + hotness + rank)
+
+summary(lm_full)
+```
+The least-squares regression equation is:
+overallhat =5.3010−0.5878(difficulty)+0.6364(hotness)−0.0504(Associate Professor)−0.0475(Professor)
+### Part d (Explanation: 1.5 pts)
+
+What are the reference levels for each categorical variable in the model from Part c? How do you know?
+
+#### Solution
+The reference level for the categorical variable rank is Assistant Professor. We know this because there is no coefficient listed for Assistant Professor in the model output. R leaves out one category and uses it as the baseline group, and the other rank coefficients (Associate Professor and Professor) are interpreted relative to that reference level.
+### Part e (Explanation: 2 pts)
+
+Holding difficulty constant, which of the following instructors would be predicted to have the highest overall rating? Which would be predicted to have the lowest overall rating? Explain your reasoning.
+
+* Attractive Assistant Professor
+* Attractive Associate Professor
+* Attractive Professor
+* Less-attractive Assistant Professor
+* Less-attractive Associate Professor
+* Less-attractive Professor
+
+#### Solution
+Holding difficulty constant, the instructor predicted to have the highest overall rating would be an Attractive Assistant Professor, because attractiveness increases the rating and Assistant Professor is the reference level so it does not reduce the prediction.
+
+The instructor predicted to have the lowest overall rating would be a Less-attractive Associate Professor, since there is no positive attractiveness boost and Associate Professor has the most negative adjustment among the rank categories.

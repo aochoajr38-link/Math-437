@@ -1,0 +1,266 @@
+---
+title: "Lab Assignment #5"
+author: "Math 437 - Modern Data Analysis"
+format: pdf
+editor: source
+---
+
+## Introduction
+
+In this lab, we will fit logistic regression models in two ways: first, with the `glm` function, and then the `tidymodels` packages. Then, we will investigate measures of classification accuracy.
+
+```{r}
+#| label: do this at the beginning of every lab file
+#| message: false
+#| warning: false
+#here::i_am("Labs/Lab05.qmd")
+
+# load packages
+library(ISLR2)
+library(nnet)
+library(tidymodels)
+
+# load data
+cheating <- readr::read_csv(here::here("C:/Users/aocho/Downloads/cheating.csv"))
+compas <- readr::read_csv(here::here("C:/Users/aocho/Downloads/compas.csv"))
+```
+
+This lab assignment is worth a total of **15 points**.
+
+## Problem 1: Logistic Regression (4 pts total)
+
+[Wilson and colleagues (2024)](https://www.sciencedirect.com/science/article/pii/S0022096524000882) investigated cheating behaviors in children on six different tasks The *cheating* dataset contains the age (in partial years) and gender (Boy or Girl) of each child tested, as well as two different response variables: whether they cheated on an impossible counting task (0 = No, 1 = Yes), and the total number of cheating behaviors observed across the six tasks.
+
+### Part a (Code: 0.5 pts; "Explanation": 1 pt)
+
+Using the `glm` function, create a logistic regression model predicting cheating on the counting task (`Cheated`) from Age and Gender. Write out the equation of the model (in either probability or log-odds form).
+```{r}
+logr_model1 <- glm(
+  Cheated ~ Age + Gender,
+  data = cheating,
+  family = "binomial"
+)
+summary(logr_model1)
+```
+Cheated = 2.459 - 0.296(Age) - 0.347(GenderGirl)
+### Part b (Explanation: 1.5 points)
+
+Interpret each number in the "Estimate" column of the summary created in Part (a).
+
+For the intercept, when Age = 0 and the child is a boy (reference group), the estimated log-odds of cheating is 2.459
+For each additional year of age, the log-odds of cheating decrease by about 0.296, holding Gender constant. This means older children are less likely to cheat
+Lastly, holding Age constant, girls have log-odds of cheating that are 0.347 lower than boys. In other words, girls are less likely to cheat than boys, though this effect is only marginally significant.
+### Part c (Code: 1 point)
+
+Use the `cheat_boy` and `cheat_girl` data frames below to predict the probability of cheating on the counting task.
+
+```{r}
+#| label: interpolation data frames
+
+cheat_boy <- data.frame(
+  Age = seq(4, 11.5, by = 1/12),
+  Gender = "Boy"
+)
+#Predictions for boys cheating
+cheat_boy$pred_prob <- predict(
+  logr_model1,
+  newdata = cheat_boy,
+  type = "response"
+)
+
+cheat_girl <- data.frame(
+  Age = seq(4, 11.5, by = 1/12),
+  Gender = "Girl"
+)
+#predictions for girls cheating
+cheat_girl$pred_prob <- predict(
+  logr_model1,
+  newdata = cheat_girl,
+  type = "response"
+)
+#Print out predictions
+head(cheat_boy)
+head(cheat_girl)
+```
+
+Once you have your predictions, finish the chunk below to create a plot showing how the predicted probability of cheating changes with age for boys vs. girls. As the legend suggests, you should plot predicted probabilities for boys using black and for girls using red.
+
+```{r}
+#| label: cheating plot
+#| fig-width: 6.5
+#| fig-height: 5
+#| eval: false
+# remove the eval: false line once you get this code to work!
+
+plot(cheat_boy$Age,
+     cheat_boy$pred_prob,  # you need to put what you're plotting here
+     type = "l",# type = "l" means make it a line
+     xlab = "Age", ylab = "Predicted Prob. of Cheating",
+     main = "Counting Task",
+     xlim = c(4, 11.5), ylim = c(0,1)
+     ) 
+lines(cheat_girl$Age,
+      cheat_girl$pred_prob,
+      col = "red",
+      lwd = 2) # now add another solid line
+legend("topright", legend = c("Boy", "Girl"), lty = c(1,1), col = c("black", "red"))
+```
+
+HINT: If your plot shows parallel lines instead of curves, you have forgotten a very important argument in your `glm` function in part (a)!
+
+## Problem 2: Logistic Regression with tidymodels (11 pts total)
+
+The "Correctional Offender Management Profiling for Alternative Sanctions" (COMPAS) is a proprietary algorithm used in several states (including California) to assess the risk that an arrested person will commit a(nother) crime after being released.
+
+The tool has been heavily criticized not only for potential bias (especially against African-Americans), but also for its need to use a 137-question survey to achieve basically the same accuracy as much simpler models.
+
+In this problem, we will use data collected by ProPublica from 2013 and 2014 arrests in Broward County, Florida and see how well we can predict an arrested person's future criminal activity from just three variables: their age, sex, and how many crimes they have previously been convicted of.
+
+We will use the 2013 data as our training set and the 2014 data as our validation set.
+
+```{r}
+#| label: subset training vs. validation
+compas_train <- compas[which(compas$screening_year == 2013), ]
+compas_valid <- compas[which(compas$screening_year == 2014), ]
+```
+
+### Part a (Explanation: 2 pts)
+
+Explain in the context of the COMPAS data what a true positive, true negative, false positive, and false negative would represent. You may assume that we are trying to predict whether an arrested person will be arrested again within two years of being released (`recid == "yes"`).
+
+#### Solution
+True Positive (TP): The model predicts the person will be rearrested within two years, and they actually are rearrested within two years.
+
+True Negative (TN): The model predicts the person will not be rearrested within two years, and they are not rearrested within two years.
+
+False Positive (FP): The model predicts the person will be rearrested within two years, but they are not rearrested within two years.
+
+False Negative (FN): The model predicts the person will not be rearrested within two years, but they actually are rearrested within two years.
+### Part b (Code: 1 pt)
+
+Using the `tidymodels` packages, fit a logistic regression model on the `compas_train` dataset predicting `recid` from the three explanatory variables. Note that there may be some weirdness with figuring out the reference level for `recid`, so you may want to convert it to a factor variable and use the `relevel` function to set the reference level before fitting the model.
+
+#### Solution
+
+
+```{r}
+compas_train$recid <- factor(compas_train$recid)
+
+compas_train$recid <- relevel(compas_train$recid, ref = "no")
+
+library(tidymodels)
+
+log_spec <- logistic_reg() |>
+  set_engine("glm") |>
+  set_mode("classification")
+
+log_fit <- log_spec |>
+  fit(recid ~ age_at_screening + sex + priors,
+      data = compas_train)
+```
+
+### Part c (Code: 1 pt)
+
+Predict whether each arrested person in the `compas_test` dataset will be arrested within two years of release (`recid == yes`). Also, create a `compas_logr_predictions` data frame or tibble containing both the predicted and actual classes and the predicted probabilities of "yes" and "no". 
+
+#### Solution
+```{r}
+class_preds <- predict(log_fit, new_data = compas_valid) #predicted class
+#predicted probabilities
+prob_preds <- predict(log_fit, new_data = compas_valid, type = "prob")
+
+compas_logr_predictions <- data.frame(
+  actual = compas_valid$recid,
+  predicted_class = class_preds$.pred_class,
+  prob_no = prob_preds$.pred_no,
+  prob_yes = prob_preds$.pred_yes
+)
+
+head(compas_logr_predictions)
+```
+
+### Part d (Code: 0.5 pts)
+
+Use the `conf_mat` function to obtain the confusion matrix on the test set.
+
+#### Solution
+```{r}
+compas_logr_predictions$actual <- factor(compas_logr_predictions$actual)
+
+conf_mat(
+  compas_logr_predictions,
+  truth = actual,
+  estimate = predicted_class
+)
+summary(compas_logr_predictions)
+
+```
+
+### Part e (Code: 0.5 pts; Computation and/or Explanation: 2 pts)
+
+Without running any additional code, use the confusion matrix to estimate the sensitivity (recall), specificity, positive predictive value (precision), and negative predictive value for the model. Express all answers as fractions and then convert to decimals rounded to the thousandths place (3 decimal places) or percentages rounded to the nearest tenth.
+
+Using the `summary` function on your confusion matrix, check your answers.
+
+#### Solution
+Sensitivity = TP/ (TP + FN) 
+25/(25 + 287) =.08
+Specificity = TN/(TN + FP)= 693/(693 + 11)= .984
+### Part f (Code: 2 pts)
+
+Using the `roc_curve` function, obtain the ROC curve for this model. Also, using the `roc_auc` function, obtain the Area Under ROC Curve.
+
+#### Solution
+```{r}
+roc_obj <- roc_curve(
+  compas_logr_predictions,
+  truth = actual,
+  prob_yes
+)
+
+roc_obj
+
+plot(roc_obj)
+
+roc_auc(
+  compas_logr_predictions,
+  truth = actual,
+  prob_yes
+)
+```
+
+### Part g (Code: 0.5 pts)
+
+Using the `brier_class` function, obtain the Brier score for this  model.
+
+#### Solution
+```{r}
+brier_class(
+  compas_logr_predictions,
+  truth = actual,
+  prob_yes
+)
+```
+
+### Part h (Code: 0.5 pts)
+
+Using the `mn_log_loss` function, obtain the cross-entropy/log loss for this model.
+
+#### Solution
+```{r}
+mn_log_loss(
+  compas_logr_predictions,
+  truth = actual,
+  prob_yes
+)
+```
+
+### Part i (Explanation: 1 pt)
+
+Give at least one reason why we might prefer to evaluate models based on their predicted probabilities instead of predicted classes. Give at least one reason why we might prefer to evaluate models based on their predicted classes instead of predicted probabilities.
+
+#### Solution
+
+We might prefer to evaluate models based on their predicted probabilities because probabilities contain more information than predicted classes. Two models could produce the same predicted class labels, but one may be much more confident and accurate in its probability estimates. Calculators like Brier score and log-loss reward well-calibrated probabilities and penalize overconfident incorrect predictions as said in class.
+
+On the other hand, we might prefer to evaluate models based on their predicted classes when the final decision requires a clear yes/no outcome. In many real-world settings such as an arrest prediction or medical diagnosis, a binary decision must be made, so classification metrics like accuracy, sensitivity, and specificity directly measure performance in terms of decision-making rather than probability estimation.

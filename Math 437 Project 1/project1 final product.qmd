@@ -1,0 +1,289 @@
+---
+title: "Project 1"
+author: "Angel Ochoa"
+format: pdf
+editor: source
+---
+
+## Packages and Data
+
+```{r}
+#| label: load packages and data
+library(ISLR2)
+library(boot)
+library(ggplot2)
+library(dplyr)
+library(glmnet)
+library(tidyverse)
+library(tidymodels)
+
+# load data
+data1 <- read_csv("C:/Users/aocho/Downloads/data1.csv")
+data2 <- read_csv("C:/Users/aocho/Downloads/data2.csv")
+data3 <- read_csv("C:/Users/aocho/Downloads/data3.csv")
+data4 <- read_csv("C:/Users/aocho/Downloads/data4.csv")
+# view data
+head(data1)
+head(data2)
+head(data3)
+head(data4)
+```
+
+## Section 1: Linear Modeling
+```{r}
+# fit linear model
+lm_fit <- lm(Basophil_frequency ~ Group, data = data1)
+
+# summary of model
+summary(lm_fit)
+
+# residual plots
+par(mfrow = c(1,2))
+plot(lm_fit, which = 1)  # residuals vs fitted
+plot(lm_fit, which = 2)  # Q-Q plot
+```
+Interpretation of coefficients:
+The intercept is 1.514, which represents the average basophil frequency for the Control group.
+The slope for GroupCase is 0.354, which represents the difference in average basophil frequency between the Case group and the Control group. This means that, on average, individuals in the Case group have a basophil frequency that is approximately 0.354 units higher than those in the Control group.
+
+Assumptions:
+The assumptions of the linear model appear to be violated. In the residuals vs fitted plot, the residuals show noticeable spread and the presence of outliers rather than a completely random pattern. Additionally, the Q-Q plot shows clear deviations from the reference line, particularly in the upper tail, indicating that the residuals are not normally distributed.
+Because the normality assumption is violated and the data appears skewed, a nonparametric test such as the Mann-Whitney test would be more appropriate for comparing the two groups.
+
+## Section 2: Mann-Whitney U Tests
+Hypotheses
+
+The null hypothesis is that the distribution (or median) of basophil frequency is the same for the Case and Control groups.
+The alternative hypothesis is that the distribution (or median) of basophil frequency differs between the Case and Control groups.
+
+Explanation:
+A permutation-based test, such as the Mann-Whitney test, is used to compare two groups without making strong assumptions about the underlying distribution of the data. Instead of relying on formulas that assume normality, this approach focuses on the relative ordering (or ranks) of the observations.
+
+The general idea is to test whether the observed difference between the two groups could have occurred just by random chance. To do this, we imagine repeatedly shuffling the group labels (Case and Control) while keeping the data values the same. For each shuffle, we calculate a test statistic that measures the difference between the groups. This creates a distribution of possible outcomes under the assumption that there is no real difference between the groups.
+
+The Mann-Whitney test simplifies this process by working with the ranks of the data rather than the raw values. It compares how large or small the values in one group are relative to the other group. If one group consistently has higher or lower ranks, this suggests a real difference between the groups.
+
+The p-value is then calculated as the probability of observing a difference as extreme as the one in our data, assuming that the null hypothesis is true. A small p-value indicates that such a result would be unlikely to occur by chance alone, providing evidence of a real difference between the groups.
+```{r}
+# Mann-Whitney test
+mw_test <- wilcox.test(Basophil_frequency ~ Group, data = data1)
+
+mw_test
+```
+Conclusion:
+We performed a Mann-Whitney test to compare basophil frequency between the Case and Control groups. The test resulted in a p-value of 0.01826.
+Since this p-value is less than the significance level of 0.05, we reject the null hypothesis that the distributions of basophil frequency are the same for both groups.
+This suggests that there is a statistically significant difference in basophil frequency between individuals in the Case group and those in the Control group. In the context of this problem, this indicates that basophil frequency may be associated with group membership, with the Case group tending to have higher values compared to the Control group.
+Additionally, this result supports our earlier observation that a nonparametric method is more appropriate than a linear model, since the data did not satisfy the normality assumption required for linear regression.
+
+### Section 2a: Adjusting p-values
+```{r}
+#| label: Bonferroni
+alpha <- 0.05
+p_values <- data2$pvalue
+m <- length(p_values) # length returns the number of elements in a vector
+
+alpha_bonf <- alpha / m
+
+bonf_reject <- ifelse(
+  p_values <= alpha_bonf, # ifelse says if this condition is true do "Reject H0" if false do "Fail to reject Ho"
+  "Reject H0",
+  "Fail to Reject H0"
+)
+
+table(bonf_reject)
+
+#| label: BH significant
+# sort p-values
+p_sorted <- sort(p_values) #sort arranges values in order
+
+# initialize decisions
+BH_decisions <- rep("Fail to Reject H0", m) # creates a vector by repeating a value multiple times
+
+#initiate loop 
+for (j in 1:m) { # makes sure we go through all p-values up to the largest one, m
+  
+  new_sig_level <- alpha * j / m # B-H threshold
+  
+  if (p_sorted[j] <= new_sig_level) { #is this p-value small enough?
+    BH_decisions[which(p_values == p_sorted[j])] <- "Reject H0" # if p-value is small enough then "Reject H0"
+  } else { # when we hit above the threshold it stops, hence break
+    break
+  }
+}
+
+table(BH_decisions)
+```
+Explanation and Conclusion:
+In this part, we analyzed a dataset that already contained p-values for many different markers. Since a large number of statistical tests were performed (one for each marker), the probability of finding significant results purely by chance increases. This is known as the multiple testing problem.
+
+To address this issue, we applied two different multiple testing correction methods: the Bonferroni correction and the Benjamini-Hochberg (BH) procedure. The Bonferroni correction works by multiplying each p-value by the total number of tests, making it much harder for a result to be considered statistically significant. This method is very strict and is mainly used to reduce the chance of false positives.
+
+The Benjamini-Hochberg method takes a different approach by controlling the false discovery rate, which is the expected proportion of false positives among all significant results. This method is less conservative than Bonferroni and allows for more findings to be considered significant while still controlling for error.
+
+In our analysis, we applied both correction methods to the p-values in the dataset. After applying these corrections, we found that none of the markers remained statistically significant. This suggests that any initially small p-values were likely due to random variation rather than a true underlying effect.
+
+Overall, this process shows why multiple testing corrections are important when analyzing large datasets. Without these corrections, we could incorrectly conclude that certain markers are significant when they are actually not, leading to misleading results.
+
+## Section 3: Bootstrap Confidence Interval
+```{r}
+#| label: Bootstrap CI for median difference
+
+# separate the two groups
+case <- data1 |>
+  filter(Group == "Case") |>
+  pull(Basophil_frequency)
+
+control <- data1 |>
+  filter(Group == "Control") |>
+  pull(Basophil_frequency)
+
+# observed difference in sample medians
+obs_diff <- median(case) - median(control)
+obs_diff
+
+# bootstrap procedure
+B <- 1000
+boot_stats <- numeric(B)
+
+set.seed(123)
+
+for (i in 1:B) {
+  
+  # resample each group with replacement
+  case_sample <- sample(case, size = length(case), replace = TRUE)
+  control_sample <- sample(control, size = length(control), replace = TRUE)
+  
+  # compute bootstrap statistic
+  boot_stats[i] <- median(case_sample) - median(control_sample)
+}
+
+# percentile confidence interval
+boot_ci <- quantile(boot_stats, c(0.025, 0.975))
+boot_ci
+```
+Conclusion:
+Bootstrap resampling is a way to estimate uncertainty without relying on strong assumptions such as normality. The main idea is to treat the observed sample like a stand-in for the population and repeatedly resample from it with replacement. “With replacement” means that once an observation is selected, it is put back before the next draw, so the same value can appear multiple times in a single bootstrap sample.
+
+In this problem, we are interested in the difference in population median basophil frequency between the Case and Control groups. To mimic repeated sampling, I repeatedly resampled the Case group and the Control group separately, each time calculating the difference in sample medians, median(Case) minus median(Control). Repeating this process many times produced a bootstrap distribution of the statistic.
+
+I then used the percentile method to construct a 95% bootstrap confidence interval. This means I took the 2.5th percentile and the 97.5th percentile of the bootstrap distribution as the lower and upper bounds of the interval. This method is intuitive because it uses the middle 95% of the bootstrap estimates directly.
+For this bootstrap we find that using 1000 bootstrap resamples, the 95% bootstrap percentile confidence interval for the difference in population median basophil frequency between Cases and Controls was (-0.4793, 0.0425).
+
+## Section 4: Logistic Regression with Variable Selection
+```{r}
+# make Group a factor
+data3$Group <- as.factor(data3$Group)
+
+#Recipe
+set.seed(123)
+rec <- recipe(Group ~ .,
+              data = data3) |>
+  step_rm(sampleID) |>
+  step_normalize(all_numeric_predictors())
+
+#Lasso Model
+lasso_model <- logistic_reg(
+  mode = "classification",
+  penalty = tune(),
+  mixture = 1   # Lasso
+) |>
+  set_engine("glmnet")
+
+#Work Flow
+wf <- workflow() |>
+  add_model(lasso_model) |>
+  add_recipe(rec)
+#Cross Validation
+cv_folds <- vfold_cv(data3, v = 5)
+
+lasso_tune <- tune_grid(
+  wf,
+  resamples = cv_folds,
+  grid = grid_regular(penalty(range = c(-4, 1)), levels = 30)
+)
+
+#Pick best lambda
+best_lambda <- select_best(lasso_tune, metric = "roc_auc")
+
+# Final model
+final_wf <- finalize_workflow(wf, best_lambda)
+
+final_fit <- fit(final_wf, data = data3)
+
+# Which variables were selected?
+final_fit |>
+  extract_fit_parsnip() |>
+  tidy() |>
+  filter(estimate != 0)
+#plot
+autoplot(lasso_tune)
+```
+Explanation:
+In this section, a logistic regression model was used to predict whether a mother belongs to the Case group (experiencing a hypertensive disorder) or the Control group based on immune response markers. Logistic regression is appropriate here because the outcome variable is binary, meaning there are only two possible outcomes: Case or Control.
+
+The dataset contains a large number of predictor variables (over 200 immune markers), which can lead to overfitting if all variables are included in the model. Overfitting occurs when a model fits the training data too closely and fails to generalize well to new data. To address this issue, LASSO (Least Absolute Shrinkage and Selection Operator) was used for automatic variable selection.
+
+LASSO works by adding a penalty term controlled by a parameter lambda, which shrinks the coefficients of the regression model toward zero. As lambda increases, more coefficients are forced to exactly zero, effectively removing less important variables from the model. This results in a simpler and more interpretable model that focuses only on the most relevant predictors.
+
+To choose the best value of lambda, cross-validation was used. In cross-validation, the data is repeatedly split into subsets, and the model is trained and evaluated multiple times to determine which value of lambda provides the best balance between predictive performance and model simplicity. This helps prevent overfitting and ensures the model performs well on new data.
+
+The plot of model performance shows how metrics such as accuracy, Brier score, and ROC AUC change as lambda varies. Smaller values of lambda allow more variables into the model and may result in higher predictive performance but risk overfitting. Larger values of lambda produce a simpler model with fewer variables but may reduce predictive accuracy. The selected lambda represents a balance between these two extremes, resulting in a model that is both effective and interpretable.
+
+Conclusion:
+The final LASSO model retained a subset of immune markers with non-zero coefficients, including variables such as Basophil_159Tb_H3K27me3_Unstim, DC_140Ce_Total_H3_Unstim, FceRIa_pos_DC_159Tb_H3K27me3_Unstim, CD16-_159Tb_H3K27me3_Unstim, and several other markers, there are 39 to be exact. These variables were retained because they contribute the most to predicting whether an observation belongs to the Case or Control group.
+
+LASSO keeps variables that improve the model’s predictive performance while shrinking less important variables to zero. As a result, the variables that remain in the final model are those that provide meaningful information about group membership. The presence of multiple retained markers suggests that hypertensive disorders in this context may be influenced by a combination of immune responses rather than a single dominant factor.
+
+## Section 5: Classification Accuracy Metrics 
+```{r}
+#turn group and .pred_class into a factor 
+data4$Group <- as.factor(data4$Group)
+data4$.pred_class <- as.factor(data4$.pred_class)
+#confusion matrix
+conf_mat(data4,
+         truth = Group,
+         estimate = .pred_class)
+```
+Explanation: 
+
+A true positive (TP) occurs when the model correctly predicts a Case observation as Case. A true negative (TN) occurs when the model correctly predicts a Control observation as Control. A false positive (FP) occurs when the model predicts Case but the true group is Control. A false negative (FN) occurs when the model predicts Control but the true group is Case.
+
+In this dataset, there are 16 true positives, 28 true negatives, 10 false positives, and 12 false negatives.
+
+What should be penalized more, false positive or false negative?
+
+In this context, false negatives should be penalized more heavily than false positives. A false negative means that a mother who is actually experiencing a hypertensive disorder is incorrectly classified as healthy, which could delay diagnosis and treatment. This could have serious health consequences. In contrast, a false positive may lead to additional testing, but is generally less harmful. Therefore, false negatives should carry a higher penalty in a custom loss function.
+
+```{r}
+#roc curve(graph)
+roc_curve(data4, 
+          truth = Group,
+          .pred_Case) |>
+  autoplot()
+#auc value (number)
+roc_auc(data4,
+        truth = Group,
+        .pred_Case)
+#Accuracy
+accuracy(data4,
+         truth = Group,
+         estimate = .pred_class)
+```
+Roc and Accuracy explanation:
+The ROC (Receiver Operating Characteristic) curve shows how well the model distinguishes between Case and Control groups across different classification thresholds. It plots the true positive rate (sensitivity) against the false positive rate (1 − specificity).
+
+The area under the ROC curve (AUC) summarizes the model’s overall ability to correctly rank Case observations higher than Control observations. An AUC value of 0.5 indicates random guessing, while a value closer to 1 indicates strong predictive performance.
+
+In this case, the model achieved an AUC of 0.670, indicating that it has moderate ability to distinguish between Case and Control groups.
+
+The classification accuracy of the model is 0.667, meaning that the model correctly classified approximately 66.7% of the observations.
+
+Metric computed:
+Accuracy measures the proportion of observations that are correctly classified by the model. It is calculated by dividing the number of correct predictions by the total number of observations. In other words, it represents how often the model makes the correct prediction overall.
+
+In this case, the accuracy of 66.7% indicates that the model correctly predicts the group membership for about two-thirds of the observations. While this is better than random guessing, it also suggests that there is room for improvement in the model’s predictive performance.
+
+
+
+
