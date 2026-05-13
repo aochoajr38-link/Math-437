@@ -1,7 +1,7 @@
 ---
 title: "Do Physical Characteristics Predict Battle Characteristics in Pokemon?"
 author: "Angel Ochoa"
-format: pdf
+format: html
 editor: source
 ---
 
