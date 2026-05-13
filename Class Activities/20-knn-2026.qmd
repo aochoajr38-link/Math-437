@@ -1,0 +1,270 @@
+---
+title: "Activity: k-Nearest Neighbors"
+subtitle: "Math 437"
+format: pdf
+editor: source
+---
+
+```{r}
+#| label: load package and data
+#| message: false
+#| warning: false
+library(tidyverse)
+library(tidymodels)
+library(kknn) # for the actual model fitting
+library(forcats) # tidyverse for factors
+
+Restrain <- readr::read_csv(here::here("C:/Users/aocho/Downloads/Restrain.csv"))
+
+Restrain2 <- Restrain |> mutate(SubCategory =
+  fct_collapse(SubCategory,
+    savory = c("Bakery (savoury)", "Savoury snacks"),
+    sweet = c("Bakery (sweet)", "Biscuits", "Confectionery", "Desserts"),
+    takeout = c("Takeaway (chain)", "Takeaway (generic)"),
+    fruit_veggie = c("Fruits", "Vegetables")
+  )
+)
+
+set.seed(1880)
+Restrain_split <- initial_split(Restrain2, prop = 0.80) 
+# can include a strata = "variable_name" argument to do stratified random training/test sampling
+
+Restrain_train2 <- training(Restrain_split)
+Restrain_test2 <- testing(Restrain_split)
+```
+
+
+## k-Nearest Neighbors Algorithm
+
+1. Explain how a k-nearest neighbors classification algorithm works.
+
+The model to run k-nearest neighbors is `nearest_neighbor`. Because k-nearest neighbors works with both regression and classification, we must specify the mode. We must also specify the number of neighbors to choose.
+
+```{r}
+#| label: knn model
+K <- 10 # 10-nearest neighbors
+knn_model <- nearest_neighbor(
+  mode = "classification",
+  neighbors = K,
+  dist_power = 2
+)
+
+```
+
+2. Briefly explain how Minkowski distance is calculated and what the `dist_power` argument refers to.
+
+```{r}
+#| label: knn recipe
+knn_recipe <- recipe(
+  SubCategory ~ Taste + Cravings + Healthiness,
+  data = Restrain_train2
+) |>
+  step_normalize(all_numeric_predictors()) #|>
+# step_dummy(all_nominal_predictors())
+```
+
+3. Why should we center and scale the numerical variables?
+
+4. Why do categorical variables need to be converted to indicator variables for this algorithm?
+
+```{r}
+#| label: fit knn
+
+knn_wflow <- workflow() |>
+  add_model(knn_model) |>
+  add_recipe(knn_recipe)
+
+knn_fit <- knn_wflow |>
+  fit(data = Restrain_train2)
+knn_fit
+```
+
+Notice that we are using the `train.kknn` function in the `kknn` package instead of the `knn` function from the `class` package (as done in the ISLR Chapter 4 lab).
+
+### Making Predictions
+
+As usual, we use the `predict` function to make predictions:
+
+```{r}
+#| label: make predictions on test set
+knn_predictions <- knn_fit |>
+  predict(new_data = Restrain_test2)
+knn_predictions
+```
+
+```{r}
+#| label: probabilistic predictions
+knn_predictions_probs <- knn_fit |>
+  predict(new_data = Restrain_test2, type = "prob")
+knn_predictions_probs
+```
+
+1. We used 10-nearest neighbors! Why don't we get nice round percentages with these predictions?
+
+We can also use `augment` to add the predictions to the original data frame:
+
+```{r}
+#| label: predict with augment
+knn_predictions_df <- knn_fit |>
+  augment(new_data = Restrain_test2)
+knn_predictions_df |>
+  dplyr::select(
+    Food,
+    SubCategory,
+    .pred_class,
+    .pred_savory,
+    .pred_sweet,
+    .pred_takeout,
+    everything()
+  ) |>
+  slice(51:54)
+```
+
+2. Explain why the "Filet-o-Fish" (row 52) is predicted to be sweet. 
+
+We can obtain the confusion matrix and see what categories get confused with each other:
+
+```{r}
+#| label: confusion matrix
+knn_predictions_df |>
+  conf_mat(
+    truth = SubCategory,
+    estimate = .pred_class
+  )
+```
+
+## Tuning k-Nearest Neighbors
+
+In k-nearest neighbors, we have two hyperparameters that we can tune: the number of neighbors and the distance metric.
+
+Remember that we tune hyperparameters using cross-validation. Here we'll use repeated 5-fold cross-validation.
+
+```{r}
+#| label: k-fold cv setup
+set.seed(145)
+Restrain_kfold <- vfold_cv(Restrain_train2,
+                     v = 5, repeats = 2,
+                     strata = SubCategory) 
+Restrain_kfold
+```
+
+Here we'll tune both the number of nearest neighbors and the distance power.
+
+```{r}
+#| label: knn with tuning
+knn_model_tune <- nearest_neighbor(
+  mode = "classification",
+  neighbors = tune(),
+  dist_power = tune()
+)
+
+knn_params <- knn_model_tune |>
+  extract_parameter_set_dials()
+knn_params
+```
+
+Let's set up our search grid using `expand.grid`:
+
+```{r}
+#| label: set up parameter grid
+knn_param_grid <- expand.grid(
+  neighbors = seq(2, 62, by = 10),
+  dist_power = c(1, 2, 5)
+)
+knn_param_grid
+```
+
+```{r}
+#| label: workflow to tune
+knn_wflow_tune <- workflow() |>
+  add_model(knn_model_tune) |>
+  add_recipe(knn_recipe)
+```
+
+Recall that we search over the entire grid using `tune_grid`:
+
+```{r}
+#| label: tune knn model
+knn_tune <- knn_wflow_tune |>
+  tune_grid(
+    resamples = Restrain_kfold,
+    grid = knn_param_grid,
+    metrics = metric_set(roc_auc, brier_class, mn_log_loss)
+)
+```
+
+1. Explain the choice of `k` in terms of the bias-variance tradeoff.
+
+```{r}
+#| label: investigate tuning results
+autoplot(knn_tune)
+```
+
+Since we get one tibble out for each fold, we can use `bind_rows` to make the output look a bit nicer and calculate the mean and SE.
+
+```{r}
+#| label: unwieldy add error bars to graph
+knn_metric_avg <- knn_tune$.metrics |>
+  bind_rows(
+    .id = "validation_set"
+  ) |>
+  group_by(neighbors, dist_power, .metric) |>
+  summarize(
+    mean = mean(.estimate),
+    se = sd(.estimate)/sqrt(length(knn_tune$.metrics)),
+    .groups = "drop"
+  ) |>
+  group_by(.metric) |>
+  arrange(mean, .by_group = TRUE)
+
+ggplot(knn_metric_avg,
+       mapping = aes(
+         x = neighbors,
+         y = mean,
+         color = factor(dist_power)
+       )) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(
+    aes(x = neighbors, ymin = mean - se, ymax = mean + se),
+    width = 0.2
+  ) +
+  facet_wrap(
+    vars(.metric),nrow = 3,
+    scales = "free_y"
+  )
+```
+
+2. How does the graph of `brier_class` illustrate the bias-variance tradeoff? What combination of `dist_power` and `neighbors` would you select based on this cross-validation?
+
+```{r}
+#| label: fit and predict final model
+knn_model_final <- nearest_neighbor(
+  mode = "classification",
+  neighbors = 22,
+  dist_power = 2
+)
+knn_wflow_final <- workflow() |>
+  add_model(knn_model_final) |>
+  add_recipe(knn_recipe)
+
+knn_fit_tuned <- fit(knn_wflow_final,
+                     data = Restrain_train2)
+
+knn_predictions_df_tuned <- knn_fit_tuned |>
+  augment(new_data = Restrain_test2)
+conf_mat(
+  knn_predictions_df_tuned,
+  truth = SubCategory,
+  estimate = .pred_class
+)
+knn_predictions_df_tuned |>
+  filter(SubCategory == "takeout", .pred_class == "fruit_veggie")
+```
+
+
+
+
+
+
+

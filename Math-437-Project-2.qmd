@@ -1,0 +1,397 @@
+---
+title: "Project 2"
+author: "Angel Ochoa"
+format: pdf
+editor: source
+---
+
+## Section 1: Data Description
+
+```{r}
+#| label: load packages
+library(pokemon)
+library(tidyverse)
+library(tidymodels)
+
+```
+
+```{r}
+#| label: import data
+data("pokemon")
+
+glimpse(pokemon)
+
+```
+
+The dataset used in this project contains information on 949 Pokemon and 22 variables. Each observation represents a single Pokemon, and the variables include physical characteristics such as height and weight, as well as performance-related statistics such as attack, defense, special attack, special defense, and speed. Additional categorical variables such as primary and secondary type are also included.
+
+The data was obtained from the pokemon R package, which provides a curated dataset of Pokemon attributes sourced from publicly available Pokemon databases. This dataset is well-documented and includes a wide range of features suitable for statistical analysis.
+
+This project investigates whether a Pokémon’s physical characteristics are related to its battle statistics. Specifically, I explore whether larger Pokémon, measured by height and weight, tend to have higher attack or defense, and whether they tend to be slower. This question is motivated by the idea that physical size may reflect combat role, but the relationship may not be simple because Pokémon can be designed in many different ways.
+```{r}
+#|label: Train and Test split
+
+set.seed(123)
+
+pokemon <- pokemon |>
+  mutate(
+    total = hp + attack + defense + special_attack + special_defense + speed,
+    total_attack = attack + special_attack,
+    total_defense = defense + special_defense
+  )
+
+pokemon_split <- initial_split(pokemon, prop = 0.7)
+
+pokemon_train <- training(pokemon_split)
+pokemon_test <- testing(pokemon_split)
+```
+
+The dataset was split into a training set (70%) and a testing set (30%) using a random split. The training set is used to fit the models, while the testing set is used to evaluate model performance on unseen data. This approach helps ensure that the models generalize well and are not simply overfitting the training data.
+
+## Section 2: Data Wrangling and Exploratory Data Analysis
+```{r}
+#| label: Height
+
+ggplot(pokemon_train,
+       mapping = aes(x = height)
+       ) +
+  geom_histogram(bins = 30,
+                 fill = "steelblue") +
+  labs(title = "Distribution of Pokemon Height")
+```
+The distribution of Pokemon height is strongly right-skewed, indicating that most Pokemon are relatively small in height while a smaller number are extremely tall. The majority of Pokemon appear to have heights below 2 units, with only a few observations extending far beyond the main distribution. This suggests that very large Pokemon are uncommon and may represent unique or specialized Pokemon designs.
+
+```{r}
+#| label: Weight
+
+ggplot(pokemon_train,
+       mapping = aes(x = weight)
+       ) +
+  geom_histogram(bins = 30,
+                 fill = "darkgreen") +
+  labs(title = "Distribution of Pokemon Weight")
+```
+The distribution of Pokemon weight is heavily right-skewed, indicating that most Pokemon have relatively low weights while a small number are extremely heavy. The majority of observations are concentrated near the lower end of the distribution, with several large outliers extending far to the right. This suggests that very heavy Pokemon are uncommon and may represent specialized or physically dominant Pokemon designs.
+
+```{r}
+#| label: Total Stats
+
+ggplot(pokemon_train,
+       mapping = aes(x = total)
+       ) +
+  geom_histogram(bins = 30,
+                 fill = "purple") +
+  labs(title = "Distribution of Total Stats")
+```
+The distribution of total stats shows that most Pokemon fall within the range of approximately 350 to 550 total points, with the highest concentration near 450 to 500. The distribution appears moderately right-skewed due to a smaller number of Pokemon with exceptionally high total stats. This suggests that while most Pokemon have moderate overall battle capabilities, a limited number stand out as significantly stronger than the majority.
+
+```{r}
+#| label: Weight vs. Attack
+
+ggplot(pokemon_train,
+       aes(x = weight, y = total_attack)) +
+  geom_point(alpha = 0.5,
+             color = "firebrick") +
+  geom_smooth(method = "lm",
+              se = FALSE,
+              color = "black") +
+  labs(title = "Weight vs Attack")
+```
+
+The relationship between weight and attack shows a moderate positive trend, as heavier Pokemon generally tend to have higher attack values. However, the large spread of points indicates that weight alone does not fully determine offensive strength. While some heavier Pokemon exhibit very high attack stats, there are also lighter Pokemon with strong offensive capabilities. This suggests that physical size may contribute to attack power, but other design and gameplay factors also play important roles.
+
+```{r}
+#|label: Weight vs. Defense
+
+ggplot(pokemon_train,
+       aes(x = weight, y = total_defense)) +
+  geom_point(alpha = 0.5,
+             color = "steelblue") +
+  geom_smooth(method = "lm",
+              se = FALSE,
+              color = "black") +
+  labs(title = "Weight vs Defense")
+```
+
+The relationship between weight and defense also appears to show a positive association, with heavier Pokemon generally tending to have higher defensive stats. Compared to the attack plot, the relationship appears slightly more consistent, suggesting that larger Pokemon may be designed to fulfill bulkier or more defensive battle roles. However, there is still substantial variability, indicating that weight is not the sole factor influencing defensive performance.
+
+```{r}
+#|label: Height vs. Attack
+
+ggplot(pokemon_train,
+       aes(x = height, y = total_attack)) +
+  geom_point(alpha = 0.5,
+             color = "steelblue") +
+  geom_smooth(method = "lm",
+              se = FALSE,
+              color = "red") +
+  labs(title = "Height vs Attack")
+```
+
+The relationship between height and attack shows a moderate positive association, with taller Pokemon generally tending to have higher attack values. The upward trend in the regression line suggests that physical size may contribute to offensive strength. However, the large spread of points indicates that height alone is not a perfect predictor of attack, as many Pokemon with similar heights exhibit different offensive capabilities.
+
+```{r}
+#| label: Attack by Weight Group
+
+pokemon_train <- pokemon_train |>
+  mutate(weight_group = case_when(
+    weight < 50 ~ "Light",
+    weight < 150 ~ "Medium",
+    TRUE ~ "Heavy"
+  ))
+
+ggplot(pokemon_train,
+       mapping = aes(x = weight_group,
+           y = attack,
+           fill = weight_group)) +
+  geom_boxplot() +
+  labs(title = "Attack Distribution by Weight Group",
+       x = "Weight Group",
+       y = "Attack")
+```
+
+To further investigate the relationship between physical and battle characteristics, Pokemon were grouped into light, medium, and heavy weight categories and their attack distributions were compared. The results suggest that heavier Pokemon generally tend to have higher attack values, with the heavy weight group showing the highest median attack. Although variability exists within each group, the overall trend indicates a positive relationship between physical size and offensive strength.
+
+The relationship plots between weight, height, and battle statistics also revealed moderate positive associations between physical size and attack or defense. In particular, heavier Pokemon tended to exhibit stronger defensive and offensive capabilities, while the relationship between weight and speed appeared much weaker. These findings suggest that physical characteristics may influence certain battle attributes, although they do not fully determine overall battle performance.
+
+Overall, the exploratory analysis indicates that physical characteristics such as height and weight are moderately associated with battle characteristics, especially attack and defense. Larger and heavier Pokemon generally tend to exhibit stronger offensive and defensive capabilities, although substantial variability across the data suggests that battle performance is influenced by multiple factors beyond physical size alone. These findings motivate further analysis using clustering and predictive modeling to better understand how physical and battle characteristics interact across different Pokemon.
+
+## Section 3: Unsupervised Learning
+```{r}
+#|label: K-Means Clustering
+set.seed(123)
+
+pokemon_train <- pokemon_train |>
+  mutate(
+    total_attack = attack + special_attack,
+    total_defense = defense + special_defense
+  )
+
+pokemon_cluster <- pokemon_train |>
+  select(
+    height,
+    weight,
+    hp,
+    total_attack,
+    total_defense,
+    speed
+  )
+
+# Scale data 
+pokemon_scaled <- scale(pokemon_cluster)
+
+# number of clusters using elbow method
+wss <- numeric(10)
+
+for (k in 1:10) {
+
+  kmeans_fit <- kmeans(
+    pokemon_scaled,
+    centers = k,
+    nstart = 25,
+    iter.max = 50
+  )
+
+  wss[k] <- kmeans_fit$tot.withinss
+}
+
+plot(
+  1:10,
+  wss,
+  type = "b",
+  xlab = "Number of Clusters",
+  ylab = "Within-Cluster Sum of Squares",
+  main = "Elbow Method"
+)
+
+```
+K-means clustering is an unsupervised learning method that groups observations into a specified number of clusters based on similarity. The algorithm works by assigning each observation to the nearest cluster center and then updating the cluster centers iteratively until the groupings stabilize. This allows us to identify natural groupings in the data without using a response variable.
+
+The elbow method was used to determine an appropriate number of clusters for the k-means analysis. The plot shows a sharp decrease in within-cluster variation from k = 1 to approximately k = 3, after which the rate of improvement begins to slow considerably. This suggests that adding more than three clusters provides diminishing returns in reducing within-cluster variation. Based on this pattern, k = 3 was selected as a reasonable balance between simplicity and cluster separation.
+
+```{r}
+#|label: Final K-means model
+
+set.seed(123)
+
+kmeans_fit <- kmeans(
+  pokemon_scaled,
+  centers = 3,
+  nstart = 25,
+  iter.max = 50
+)
+
+pokemon_train <- pokemon_train |>
+  mutate(
+    cluster = as.factor(kmeans_fit$cluster),
+    cluster_label = recode(
+      cluster,
+       "1" = "Small Low-Stat Pokemon",
+      "2" = "Balanced Mid-Sized Pokemon",
+      "3" = "Large Powerhouses"
+    )
+  )
+
+ggplot(
+  pokemon_train,
+  mapping = aes(
+    x = total_attack,
+    y = total_defense,
+    color = cluster_label
+  )
+) +
+  geom_point(alpha = 0.6) +
+  labs(
+    title = "K-Means Clusters of Pokemon",
+    x = "Total Attack",
+    y = "Total Defense",
+    color = "Cluster Type"
+  )
+```
+
+The clustering analysis identified three primary Pokemon archetypes based on physical and battle characteristics. One cluster represents large powerhouse Pokemon with the highest average height, weight, attack, defense, and overall battle statistics. A second cluster consists of smaller low-stat Pokemon with lower averages across most variables. The third cluster represents more balanced mid-sized Pokemon with moderate offensive and defensive capabilities and relatively high speed.
+
+The cluster visualization shows meaningful separation between these archetypes, particularly between low-stat Pokemon and larger powerhouse Pokemon. Although some overlap exists between groups, the results suggest that physical characteristics such as height and weight are associated with broader battle roles and overall battle performance.
+
+## Section 4: Supervised Learning
+```{r}
+#|label: KNN Regression model
+
+pokemon_train <- pokemon_train |>
+  mutate(
+    total_attack = attack + special_attack,
+    total_defense = defense + special_defense
+  )
+
+pokemon_test <- pokemon_test |>
+  mutate(
+    total_attack = attack + special_attack,
+    total_defense = defense + special_defense
+  )
+
+pokemon_folds <- vfold_cv(
+  pokemon_train,
+  v = 5
+)
+
+knn_recipe <- recipe(
+  total_attack ~ height + weight,
+  data = pokemon_train
+) |>
+  step_normalize(all_predictors())
+
+knn_model <- nearest_neighbor(
+  mode = "regression",
+  neighbors = tune()
+) |>
+  set_engine("kknn")
+
+knn_wflow <- workflow() |>
+  add_model(knn_model) |>
+  add_recipe(knn_recipe)
+# tune
+
+knn_grid <- tibble(
+  neighbors = seq(1, 51, by = 5)
+)
+
+knn_tune <- tune_grid(
+  knn_wflow,
+  resamples = pokemon_folds,
+  grid = knn_grid,
+  metrics = metric_set(rmse, rsq)
+)
+
+knn_tune |>
+  collect_metrics()
+#knn regression plot
+
+knn_tune |>
+  autoplot()
+#finalize knn regression
+
+best_k <- select_best(knn_tune, metric = "rmse")
+
+final_knn_wflow <- finalize_workflow(knn_wflow, best_k)
+
+knn_fit <- fit(final_knn_wflow, data = pokemon_train)
+
+knn_predictions <- knn_fit |>
+  augment(new_data = pokemon_test)
+
+metrics(
+  knn_predictions,
+  truth = total_attack,
+  estimate = .pred)
+```
+Conclusion: 
+A K-nearest neighbors regression model was used to predict total attack using Pokemon height and weight as predictors. The number of neighbors was tuned using 5-fold cross-validation across multiple k values. The tuning results showed that prediction error decreased substantially as k increased from 1, before stabilizing around moderate k values.
+
+The final KNN regression model achieved an RMSE of approximately 38.4 and an R-squared value of approximately 0.45 on the test set. This indicates that physical characteristics such as height and weight explain a moderate portion of the variation in offensive battle capability. Although the model does not perfectly predict total attack, the results suggest that larger Pokemon generally tend to have stronger offensive characteristics.
+
+```{r}
+#|label: Linear Regression Model
+
+lm_model <- linear_reg() |>
+  set_engine("lm")
+
+lm_wflow <- workflow() |>
+  add_model(lm_model) |>
+  add_formula(total_attack ~ height + weight)
+
+lm_cv <- fit_resamples(
+  lm_wflow,
+  resamples = pokemon_folds,
+  metrics = metric_set(rmse, rsq, mae)
+)
+
+lm_cv |>
+  collect_metrics()
+
+
+#linear-regression-test
+
+lm_fit <- fit(
+  lm_wflow,
+  data = pokemon_train
+)
+
+lm_predictions <- lm_fit |>
+  augment(new_data = pokemon_test)
+
+metrics(
+  lm_predictions,
+  truth = total_attack,
+  estimate = .pred
+)
+#plot
+ggplot(
+  knn_predictions,
+  aes(x = total_attack, y = .pred)
+) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = "red"
+  ) +
+  labs(
+    title = "KNN Predicted vs Actual Total Attack",
+    x = "Actual Total Attack",
+    y = "Predicted Total Attack"
+  )
+```
+
+A linear regression model was used as a baseline model to predict total attack from Pokemon height and weight. This model assumes that the relationship between the physical characteristics and total attack is roughly linear. The model achieved an RMSE of approximately 47.23, an R-squared value of approximately 0.19, and an MAE of approximately 35.69 on the test set.
+
+These results suggest that height and weight do explain some variation in total attack, but the simple linear model does not capture the relationship very well. Compared to the KNN regression model, which had a lower RMSE of approximately 38.41 and a higher R-squared value of approximately 0.45, linear regression performed worse. This suggests that the relationship between physical characteristics and offensive battle strength is likely not strictly linear.
+
+The KNN predicted versus actual plot supports this conclusion. The predictions generally follow the upward trend of the actual values, but there is still noticeable spread around the reference line. Overall, the supervised learning results suggest that physical characteristics such as height and weight provide meaningful information about offensive strength, but they do not fully determine battle performance.
+
+Overall, the results of this project suggest that physical characteristics such as height and weight do have a meaningful relationship with battle characteristics in Pokemon, particularly offensive strength. Larger and heavier Pokemon generally tended to have higher attack and defensive statistics, and the clustering analysis revealed clear archetypes separating smaller low-stat Pokemon from larger powerhouse Pokemon. However, the relationships observed were only moderate rather than overwhelming, indicating that physical size alone does not fully determine battle performance.
+
+This reflects an important aspect of the Pokemon games themselves. Players may initially assume that larger or taller Pokemon are automatically the strongest because of their appearance and physical design. However, actual gameplay often shows that smaller or lighter Pokemon can still be extremely effective due to other characteristics such as speed, stat distribution, typing, abilities, or battle strategy. The supervised learning models reinforced this idea, as height and weight explained only part of the variation in offensive capability. Even the stronger KNN model explained approximately 45% of the variation in total attack, meaning that more than half of the variation is influenced by factors beyond physical size.
+
+Additionally, the analysis focused primarily on offensive capability in the supervised learning section through the use of total attack as the response variable. While the exploratory analysis and clustering results suggested that larger Pokemon also tend to exhibit stronger defensive characteristics, defense was not modeled directly in the final predictive analysis. This highlights a limitation of the project and suggests an opportunity for future work, such as building separate predictive models for defensive strength or incorporating additional gameplay variables beyond physical characteristics alone.
+
+Overall, this project demonstrates that while physical size contributes to battle performance in Pokemon, it is far from the only factor determining strength. The results support the idea that Pokemon effectiveness is influenced by a complex combination of physical design, stat specialization, and gameplay mechanics rather than size alone.

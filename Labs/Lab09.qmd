@@ -1,0 +1,278 @@
+---
+title: "Lab Assignment #9"
+author: "Angel Ochoa"
+format: pdf
+editor: source
+---
+
+In this lab we will work with clustering methods using the `cereal3` dataset again.
+
+```{r}
+#| label: do this at the beginning of every lab file
+#| message: false
+#| warning: false
+here::i_am("Labs/Lab09.qmd")
+
+library(tidyverse)
+library(broom)
+library(tidyclust)
+library(mclust)
+
+
+cereal3 <- readr::read_csv(here::here("C:/Users/aocho/Downloads/cereal3.csv"))
+```
+
+
+## Problem 1: K-Means Clustering
+
+### Part a (Code: 1 pts)
+
+Run the code in ISLR Lab 12.5.3, subsection "K-Means Clustering."
+
+#### Solution
+```{r}
+set.seed(2)
+x <- matrix(rnorm(50 * 2), ncol = 2)
+x[1:25, 1] <- x[1:25, 1] + 3
+x[1:25, 2] <- x[1:25, 2] - 4
+
+km.out <- kmeans(x, 2, nstart = 20)
+
+km.out$cluster
+
+#plot
+par(mfrow = c(1, 2))
+plot(x, col = (km.out$cluster + 1),
+main = "K-Means Clustering Results with K = 2",
+xlab = "", 
+ylab = "", 
+pch = 20,
+cex = 2)
+```
+```{r}
+set.seed(4) 
+km.out <- kmeans(x, 3, nstart = 20)
+km.out
+
+#plot
+plot(x, col = (km.out$cluster + 1),
+main = "K-Means Clustering Results with K = 3",
+xlab = "", ylab = "", pch = 20, cex = 2)
+```
+```{r}
+set.seed(4)
+km.out <- kmeans(x, 3, nstart = 1)
+km.out$tot.withinss
+
+km.out <- kmeans(x, 3, nstart = 20)
+km.out$tot.withinss
+```
+
+### Part b (Code: 1 pt; Explanation: 1 pt)
+
+We would now like to cluster the cereals in `cereal3` based on their nutritional information. The chunk below creates a matrix of relevant variables (we use `model.matrix` to simultaneously convert categorical variables into dummy variables, should we have any).
+
+```{r}
+#| label: create cereal nutritional matrix
+
+cereal <- cereal3 |>
+  mutate(Complex.Carbs = Total.Carbohydrate - Dietary.Fiber - Sugar) |>
+  select(Cereal.Abb, Total.Fat, Sodium, Complex.Carbs, Dietary.Fiber,
+          Sugar, Protein) 
+
+x.matrix <- model.matrix(~ Total.Fat + Sodium +
+                           Complex.Carbs + Dietary.Fiber + 
+                           Sugar + Protein, data = cereal)[,-1]
+```
+
+Perform k-means clustering on the nutritional variables (i.e., the `x.matrix`) *without* scaling the variables. Use 4 clusters and `nstart = 20`. 
+
+Using the `pairs` function, produce a plot of the clusters, color-coded by the cluster number.
+
+Looking at the cluster `centers` or the plot, which variable appears to be the most important for distinguishing between the clusters? Why? Is this what you expected?
+
+#### Solution
+```{r}
+#| label: Run k means no scaling
+
+kmeans_fit <- kmeans(x.matrix, centers = 4, nstart = 20)
+
+#plot using pairs
+pairs(x.matrix,
+      col = kmeans_fit$cluster,
+      pch = 19)
+
+#look at cluster centers
+kmeans_fit$centers
+```
+Explanation:
+Looking at the cluster centers and the pairs plot, sodium appears to be the most important variable for distinguishing between the clusters, since it shows the largest variation across the four clusters. The cluster centers for sodium range from about 143 to 254, which is a much wider spread compared to the other variables.
+
+This is expected because we did not scale the variables before applying k-means clustering. As a result, variables with larger numerical values, like sodium, have a greater influence on the distance calculations and therefore dominate the clustering.
+
+### Part c (Code: 1 pt; Explanation: 1 pt)
+
+Scale the nutritional variables and re-run k-means clustering with 4 clusters and `nstart = 20`. Using the `pairs` function, produce a plot of the clusters (on the original scale), color-coded by the new cluster number.
+
+How does this plot compare to the plot you made in Part b? What does this suggest about the importance of scaling the variables before running k-means clustering?
+
+#### Solution
+```{r}
+x.scaled <- scale(x.matrix)
+
+kmeans_scaled <- kmeans(x.scaled, centers = 4, nstart = 20)
+
+pairs(x.matrix,
+      col = kmeans_scaled$cluster,
+      pch = 19)
+kmeans_scaled$centers
+
+```
+Compared to the plot in Part b, the clusters are more evenly distributed across all variables rather than being dominated by sodium. In Part b, sodium had a strong influence on the clustering because it was on a much larger scale than the other variables.
+After scaling, each variable contributes equally to the distance calculations, resulting in clusters that reflect differences across multiple nutritional variables rather than just one.
+This suggests that scaling is important before running k-means clustering, especially when variables are on different scales, because it prevents variables with larger magnitudes from dominating the results.
+1
+### Part d (Explanation: 1 pt)
+
+Looking at the cluster `centers` (remember, a mean of 0 is average after scaling) or plot in Part c, assign a meaning to each cluster of cereals. For example, you should find that one of your clusters contains cereals that are high in fat.
+
+#### Solution
+Based on the plot in Part c, we can assign meanings to each cluster by examining how the variables differ across groups.
+One cluster appears to contain cereals that are high in fat, distinguishing them from the others.
+Another cluster contains cereals that are high in carbohydrates and sugar, representing sweeter or more processed cereals.
+A third cluster includes cereals that are lower in sugar and fat and relatively higher in fiber and protein, representing healthier cereals.
+The final cluster appears to represent cereals that are more balanced or lower in sodium compared to the others.
+These groupings show that, after scaling, the clusters reflect differences across multiple nutritional variables rather than being dominated by a single variable.
+### Part e (Code and Explanation: 1.5 pts)
+
+Using the `augment` function from the `broom` package, augment the `cereal` or `cereal3` dataset with the information from the k-means clustering in Part c. 
+
+Obtain the size of each cluster. For one of the smaller clusters, filter the augmented dataset to look at only observations from that cluster. What cereals are in that cluster? Do they appear to have anything in common (think about the cereal names and anything you might know about them)?
+
+#### Solution
+```{r}
+cereal_aug <- augment(kmeans_scaled, x.matrix)
+
+cereal_aug <- cbind(cereal, cluster = kmeans_scaled$cluster)
+
+table(cereal_aug$cluster)
+
+#pick a cluseter
+small_cluster <- cereal_aug |>
+  filter(cluster == 2)
+
+#view cereals
+small_cluster$Cereal.Abb
+```
+Explanation:
+The cluster sizes are 6, 8, 54, and 20, so one of the smaller clusters has 8 cereals. The cereals in this cluster are AllBranorig, FiberOne, FMWBlue, FMWLBOrig, FMWOrig, FMWStraw, ShWheatBig, and ShWheatSpoon. These cereals appear to have something in common because many of them are bran or wheat cereals, and several seem to be high-fiber cereals. Based on their names, they look like healthier, more fiber-focused cereals, which is consistent with why they were grouped together.
+## Problem 2: Hierarchical Clustering
+
+### Part a (Code: 1 pt)
+
+Run the code in ISLR Lab 12.5.3, subsection "Hierarchical Clustering."
+
+#### Solution
+```{r}
+hc.complete <- hclust(dist(x), method = "complete")
+hc.average <- hclust(dist(x), method = "average")
+hc.single <- hclust(dist(x), method = "single")
+
+#plot
+par(mfrow = c(1, 3))
+plot(hc.complete, main = "Complete Linkage",
+xlab = "", sub = "", cex = .9)
+plot(hc.average, main = "Average Linkage",
+xlab = "", sub = "", cex = .9)
+plot(hc.single, main = "Single Linkage",
+xlab = "", sub = "", cex = .9)
+```
+```{r}
+cutree(hc.complete, 2)
+cutree(hc.average, 2)
+cutree(hc.single, 2)
+cutree(hc.single, 4)
+
+xsc <- scale(x)
+plot(hclust(dist(xsc), method = "complete"),
+main = "Hierarchical Clustering with Scaled Features")
+```
+
+### Part b (Code: 1 pt)
+
+Use the scaled version of `x.matrix` to perform hierarchical clustering on the dataset. Use complete linkage (the default). Plot the dendogram using the arguments `labels = cereal$Cereal.Abb, cex = 0.7`. 
+
+#### Solution
+```{r}
+#| label: hierarchical-clustering-scaled-cereal-data
+
+# scale the nutritional variables
+x.scaled <- scale(x.matrix)
+
+# perform hierarchical clustering using complete linkage
+hc.scaled <- hclust(dist(x.scaled), method = "complete")
+
+# plot the dendrogram with cereal labels
+plot(hc.scaled,
+     labels = cereal$Cereal.Abb,
+     cex = 0.7,
+     main = "Hierarchical Clustering of Scaled Cereal Data",
+     xlab = "",
+     sub = "")
+```
+
+### Part c (Explanation: 1 pt)
+
+88 cereals is a bit too much to get a good look, so you may want to zoom in on the dendrogram to answer these questions. (There's a little window icon in the top right of the output that you can click on to zoom in.)
+
+* Which cereal or cereals are most similar to Cheerios? 
+* Which cereal or cereals are most similar to Honey Nut Cheerios (CheeriosHN)?
+
+#### Solution
+Cheerios is most similar to Kix, and Honey Nut Cheerios is most similar to Apple Cinnamon Cheerios, since these cereals merge at the lowest heights in the dendrogram.
+
+### Part d (Explanation: 1 pt)
+
+You should see two three-way splits at height 0, one with three Life cereals and one with three Frosted Flakes (FF) cereals. Why do you suspect there is a three-way split? What does it mean to split at height 0?
+
+#### Solution
+The three-way splits occur because some cereals have identical or nearly identical values for the variables used in clustering, so their distances are essentially zero. As a result, they are grouped together at height 0.
+A split at height 0 means that the cereals being joined are indistinguishable based on the measured variables, so there is no distance between them. This is why we see multiple cereals merging at the same point, creating a three-way split.
+
+## Problem 3: Model-Based Clustering
+
+### Part a (Code: 1 pt)
+
+Fit a Gaussian mixture model on `x.matrix` (scaled or unscaled, it doesn't matter, you should get basically the same results) using the `Mclust` function. Use 4 clusters (`G = 4`). Produce a "classification" plot of the resulting clusters. 
+
+#### Solution
+```{r}
+#| label: gmm-clustering
+
+# fit Gaussian mixture model with 4 clusters
+gmm_fit <- Mclust(x.matrix, G = 4)
+
+# classification plot
+plot(gmm_fit, what = "classification")
+```
+
+### Part b (Code: 1 pt; Explanation: 1.5 pts)
+
+Using `augment`, add the information from the Gaussian mixture model to the dataset from Problem 1e. Produce a table showing the cluster assignments from the k-means vs. Gaussian mixture models.
+
+Do the two models mostly agree on the clusters? If not, which types of cereals do they tend to agree about, and which do they not agree about?
+
+#### Solution
+```{r}
+cereal_gmm <- cereal |>
+  mutate(gmm_cluster = gmm_fit$classification,
+         kmeans_cluster = kmeans_scaled$cluster)
+
+table(cereal_gmm$kmeans_cluster, cereal_gmm$gmm_cluster)
+```
+Explanation:
+The k-means and Gaussian mixture models show partial agreement in their cluster assignments. For example, k-means cluster 2 is entirely assigned to a single Gaussian mixture cluster, indicating strong agreement. Similarly, most observations in k-means cluster 1 are grouped together in the Gaussian mixture model.
+
+However, there is disagreement for other clusters. In particular, k-means cluster 3 is split across multiple Gaussian mixture clusters (mainly clusters 2 and 4), and k-means cluster 4 is also divided across different Gaussian mixture clusters.
+
+This suggests that the two models agree more on clearly defined groups of cereals, but differ on cereals with more moderate or overlapping characteristics. This is likely because k-means forms clusters based on distance to cluster centers, while Gaussian mixture models allow for more flexible cluster shapes and probabilistic assignments.

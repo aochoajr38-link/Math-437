@@ -1,0 +1,133 @@
+---
+title: 'Lab Assignment #10'
+author: "Math 437 - Modern Data Analysis"
+format: pdf
+---
+
+## Instructions
+
+The purpose of this lab is to introduce several different classification strategies and variations on classification accuracy. In this lab we will work with, k-nearest neighbors, Naive Bayes and linear/quadratic discriminant analysis.
+
+```{r}
+#| label: load libraries and data
+#| message: false
+#| warning: false
+here::i_am("Labs/Lab10.qmd")
+
+# These are loaded in Lab 4.7
+library(ISLR2)
+library(MASS) # LDA/QDA
+library(e1071) # Naive Bayes
+library(class) # knn
+
+# Might need these packages if you use tidyverse/tidymodels
+library(tidyverse)
+library(tidymodels)
+library(discrim)
+library(klaR)
+library(kknn)
+
+# compas data
+compas <- readr::read_csv(here::here("Data/compas.csv"))
+compas$recid <- as.factor(compas$recid)
+compas_train <- compas[which(compas$screening_year == 2013), ]
+compas_holdout <- compas[which(compas$screening_year == 2014), ]
+```
+
+
+This lab assignment is worth a total of **17.5 points**.
+
+For Problems 2-3, you may fit and predict using either the regular functions or the `tidymodels` workflows. Please do not mix and match. You should use functions from the `yardstick` package to do all model assessment.
+
+## Problem 1: Understanding the Classification Algorithms
+
+### Part a (Code: 4 pts)
+
+Run the code in ISLR Labs 4.7.3-4.7.6. Put each chunk from the textbook in its own chunk. As usual, read the text to figure out what the chunks do, and don't `attach` anything (use the `with` function that we've learned about instead, e.g., `with(Smarket, plot(Volume))` instead of attaching Smarket).
+
+```{r}
+#| label: create train subset
+train <- (Year < 2005)
+Smarket.2005 <- Smarket[!train, ]
+Direction.2005 <- Smarket$Direction[!train]
+```
+
+
+### Section 4.7.3
+
+### Section 4.7.4
+
+### Section 4.7.5
+
+### Section 4.7.6
+
+## Problem 2: Recidivism Prediction
+
+Just like in Lab 5, we will use additional classification models to predict whether an arrested person will reoffend within two years.
+
+### Part a (Code: 3.5 pts; Explanation: 1 pt)
+
+Choose an accuracy metric to optimize (e.g., AUC, mean log-loss). Using 5-fold cross-validation on the training set, determine and justify an "optimal" value for the number of nearest neighbors in a k-nearest neighbors model. Support your decision by creating a plot showing the average accuracy as a function of `k`.
+
+If you are using "regular R", Euclidean distance is used by default, and you will need two `for` loops (an outer loop over the folds and an inner loop over the possible values of `k`). To avoid confusion with `k` in k-fold vs `k` in k-nn, use `v` as the fold index.
+
+If you are using `tidymodels`, you should create a `model` specifying the algorithm and the parameter to tune, then create a grid of possible parameter values and tune over it. You should set `dist_power = 2` and not worry about tuning it.
+
+#### Solution
+
+### Part b (Code: 1.5 pts)
+
+Fit a k-nearest neighbors model on the full `compas_train` training set using the value of `k` selected in Part a.
+
+Then, using this model, predict whether each arrested person in the `compas_test` dataset will be arrested within two years of release (`recid == yes`). Also, create a `compas_knn_predictions` data frame or tibble containing both the predicted and actual classes and the predicted probabilities of "yes" and "no". 
+
+Remember to re-scale the predictor variables in your test set based on the full training set!
+
+#### Solution
+
+
+### Part c (Code: 1.5 pts)
+
+Fit a Naive Bayes model on the `compas_train` training set predicting `recid` from `age_at_screening`, `priors`, and `sex`. Remember that you will have to convert `sex` to a factor variable (or use `step_dummy`) if you want to use tidymodels!
+
+Then, using this model, predict whether each arrested person in the `compas_test` dataset will be arrested within two years of release (`recid == yes`). Also, create a `compas_nb_predictions` data frame or tibble containing both the predicted and actual classes and the predicted probabilities of "yes" and "no". 
+
+
+#### Solution
+
+
+### Part d (Code: 1.5 pts)
+
+Fit a linear discriminant analysis model on the training set predicting `recid` from `age_at_screening`, `priors`, and `sex`. 
+Then, using this model, predict whether each arrested person in the `compas_test` dataset will be arrested within two years of release (`recid == yes`). Also, create a `compas_lda_predictions` data frame or tibble containing both the predicted and actual classes and the predicted probabilities of "yes" and "no". 
+
+#### Solution
+
+
+### Part e (Code: 1.5 pts)
+
+Fit a quadratic discriminant analysis model on the training set predicting `recid` from `age_at_screening`, `priors`, and `sex`. Remember that you will have to convert `sex` to a factor variable (or use `step_dummy`) if you use tidymodels!
+
+Then, using this model, predict whether each arrested person in the `compas_test` dataset will be arrested within two years of release (`recid == yes`). Also, create a `compas_qda_predictions` data frame or tibble containing both the predicted and actual classes and the predicted probabilities of "yes" and "no". 
+
+#### Solution
+
+
+## Problem 3: Evaluating Probabilistic Predictions
+
+### Part a (Code: 0.5 pts; Explanation: 1 pt)
+
+Using the `brier_class` function, obtain the Brier score for each model.
+
+Which of the four models performs best by this measure? Which performs worst? Explain.
+
+#### Solution
+
+### Part b (Code: 0.5 pts; Explanation: 1 pt)
+
+Using the `mn_log_loss` function, obtain the cross-entropy/log loss for each model.
+
+Which of the four models performs best by this measure? Which performs worst? Explain.
+
+#### Solution
+
